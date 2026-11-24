@@ -7,17 +7,33 @@
 // Opsional: Tempelkan API Key OpenRouter (sk-or-v1-...) Anda di bawah ini agar JagoAI otomatis aktif di semua HP tanpa perlu Settings:
 const OPENROUTER_API_KEY = '';
 
+// Model OpenRouter (ID dicek di openrouter.ai/models). Ganti di sini bila ID berubah.
+// Teks, skor kesehatan finansial, pemecahan kalimat transaksi -> NVIDIA Nemotron 3 Ultra
+const OPENROUTER_TEXT_MODEL = 'nvidia/nemotron-3-ultra-550b-a55b:free';
+// Foto struk belanja (gambar) -> inclusionAI Ling 3.2 Flash. Juga cadangan bila Nemotron gagal.
+const OPENROUTER_VISION_MODEL = 'inclusionai/ling-3.2-flash:free';
+
 function doPost(e) {
-  // Kunci skrip: mencegah dua perangkat menulis Sheet bersamaan (data bisa rusak/hilang)
-  var lock = LockService.getScriptLock();
+  var payload;
   try {
-    lock.waitLock(25000);
-  } catch (lockErr) {
-    return jsonOut_({ status: 'error', message: 'Server sedang sibuk, coba lagi sebentar.' });
+    payload = JSON.parse((e && e.postData && e.postData.contents) || '{}');
+  } catch (parseErr) {
+    return jsonOut_({ status: 'error', message: 'Permintaan tidak valid.' });
+  }
+  var action = payload.action || '';
+
+  // Kunci skrip: mencegah dua perangkat menulis Sheet bersamaan (data bisa rusak/hilang).
+  // Panggilan AI bisa memakan puluhan detik, jadi TIDAK memegang kunci agar sinkronisasi lain tidak terblokir.
+  var needsLock = action !== 'askAI' && action !== 'ping';
+  var lock = LockService.getScriptLock();
+  if (needsLock) {
+    try {
+      lock.waitLock(25000);
+    } catch (lockErr) {
+      return jsonOut_({ status: 'error', message: 'Server sedang sibuk, coba lagi sebentar.' });
+    }
   }
   try {
-    var payload = JSON.parse((e && e.postData && e.postData.contents) || '{}');
-    var action = payload.action || '';
     var ss = SpreadsheetApp.getActiveSpreadsheet();
     ensureSheets_(ss);
 
@@ -38,7 +54,7 @@ function doPost(e) {
   } catch (err) {
     return jsonOut_({ status: 'error', message: err.toString() });
   } finally {
-    lock.releaseLock();
+    if (needsLock) lock.releaseLock();
   }
 }
 
@@ -51,10 +67,11 @@ function handleAskAi_(ss, p) {
     return jsonOut_({ status: 'error', message: 'OPENROUTER_API_KEY belum diisi di Kode.gs.' });
   }
 
-  var hasImage = p.imagePart && p.imagePart.data;
-  var model = hasImage
-    ? 'inclusionai/ling-3.2-flash:free'
-    : 'nvidia/nemotron-3-ultra:free';
+  var hasImage = !!(p.imagePart && p.imagePart.data);
+  // Foto struk -> Ling (vision). Teks -> Nemotron; bila gagal (limit gratis/error), Ling mengambil alih.
+  var models = hasImage
+    ? [OPENROUTER_VISION_MODEL]
+    : [OPENROUTER_TEXT_MODEL, OPENROUTER_VISION_MODEL];
 
   var content = hasImage
     ? [
@@ -68,31 +85,39 @@ function handleAskAi_(ss, p) {
       ]
     : (p.prompt || '');
 
-  var res = UrlFetchApp.fetch('https://openrouter.ai/api/v1/chat/completions', {
-    method: 'post',
-    contentType: 'application/json',
-    muteHttpExceptions: true,
-    headers: {
-      'Authorization': 'Bearer ' + apiKey,
-      'HTTP-Referer': 'https://jagotrack.app',
-      'X-Title': 'JagoTrack'
-    },
-    payload: JSON.stringify({
-      model: model,
-      messages: [{ role: 'user', content: content }],
-      temperature: 0.25
-    })
-  });
-
-  var code = res.getResponseCode();
-  var data = JSON.parse(res.getContentText() || '{}');
-  if (code < 200 || code >= 300) {
-    var errMsg = (data.error && data.error.message) ? data.error.message : ('OpenRouter HTTP ' + code);
-    return jsonOut_({ status: 'error', message: errMsg });
+  var lastErr = 'Layanan AI tidak merespons.';
+  for (var m = 0; m < models.length; m++) {
+    try {
+      var res = UrlFetchApp.fetch('https://openrouter.ai/api/v1/chat/completions', {
+        method: 'post',
+        contentType: 'application/json',
+        muteHttpExceptions: true,
+        headers: {
+          'Authorization': 'Bearer ' + apiKey,
+          'HTTP-Referer': 'https://jagotrack.app',
+          'X-Title': 'JagoTrack'
+        },
+        payload: JSON.stringify({
+          model: models[m],
+          messages: [{ role: 'user', content: content }],
+          temperature: 0.25
+        })
+      });
+      var code = res.getResponseCode();
+      var data = {};
+      try { data = JSON.parse(res.getContentText() || '{}'); } catch (parseErr) {}
+      if (code >= 200 && code < 300) {
+        var replyText = (data.choices && data.choices[0] && data.choices[0].message && data.choices[0].message.content) || '';
+        if (replyText) return jsonOut_({ status: 'ok', reply: replyText, model: models[m] });
+        lastErr = 'AI mengembalikan jawaban kosong.';
+        continue;
+      }
+      lastErr = (data.error && data.error.message) ? data.error.message : ('OpenRouter HTTP ' + code);
+    } catch (fetchErr) {
+      lastErr = String(fetchErr);
+    }
   }
-
-  var replyText = (data.choices && data.choices[0] && data.choices[0].message && data.choices[0].message.content) || '{}';
-  return jsonOut_({ status: 'ok', reply: replyText });
+  return jsonOut_({ status: 'error', message: lastErr });
 }
 
 function ensureSheets_(ss) {
