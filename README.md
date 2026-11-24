@@ -32,6 +32,20 @@ Tanpa backend, aplikasi langsung berjalan dalam **Mode Lokal** (data hanya di br
 5. Salin URL `/exec`, tempel di menu pengaturan server di aplikasi, atau isi `DEFAULT_GAS_URL` di `index.html`.
 6. Setiap `Kode.gs` diubah: **Deploy → Manage deployments → Edit → New version**.
 
+## JagoAI (OpenRouter)
+
+| Tugas | Model | ID di OpenRouter |
+|---|---|---|
+| Penalaran teks, Skor Kesehatan Finansial, pemecahan kalimat transaksi | NVIDIA Nemotron 3 Ultra | `nvidia/nemotron-3-ultra-550b-a55b:free` |
+| Foto struk belanja (otomatis saat unggah gambar) | inclusionAI Ling 3.2 Flash | `inclusionai/ling-3.2-flash:free` |
+
+- Bila Nemotron gagal (mis. limit endpoint gratis), permintaan teks otomatis dialihkan ke Ling.
+- Isi `OPENROUTER_API_KEY` di `Kode.gs` (Apps Script), atau tempel kunci `sk-or-...` di menu Akun → AI & Sheets.
+- Tombol kamera membuka kamera bawaan HP; tombol galeri membuka pemilih foto. Foto otomatis diperkecil sebelum dikirim.
+- Endpoint gratis OpenRouter dapat mencatat data permintaan (NVIDIA menyatakannya di halaman modelnya) dan dibatasi kuota.
+  Hindari memotret struk yang memuat data pribadi sensitif.
+- Bila ID model berubah, ganti konstanta `OPENROUTER_TEXT_MODEL` / `OPENROUTER_VISION_MODEL` di `index.html` **dan** `Kode.gs`.
+
 ## Keamanan — baca sebelum membagikan ke orang lain
 
 - **Jangan commit API key** (OpenRouter/Gemini) ke repository. Simpan di Apps Script atau input di aplikasi.

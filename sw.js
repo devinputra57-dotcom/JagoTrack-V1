@@ -1,6 +1,6 @@
 // JagoTrack service worker — cache app shell agar bisa dibuka offline.
 // Naikkan CACHE_VERSION setiap kali index.html diubah agar pengguna mendapat versi terbaru.
-const CACHE_VERSION = 'jagotrack-v3';
+const CACHE_VERSION = 'jagotrack-v4';
 const CDN_ASSETS = [
   'https://cdn.tailwindcss.com/3.4.17',
   'https://cdn.jsdelivr.net/npm/chart.js@4.4.7/dist/chart.umd.min.js'
